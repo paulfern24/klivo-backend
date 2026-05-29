@@ -1,0 +1,20 @@
+{
+  "updatedAt": "2026-05-28T18:00:00.000Z",
+  "sponsors": [
+    {
+      "id": "klivo-1",
+      "name": "Klivo",
+      "logoUrl": null
+    },
+    {
+      "id": "klivo-2",
+      "name": "Klivo Sport",
+      "logoUrl": null
+    },
+    {
+      "id": "demo-padel",
+      "name": "Padel Pro Shop",
+      "logoUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Example.svg/120px-Example.svg.png"
+    }
+  ]
+}

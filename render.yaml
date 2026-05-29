@@ -1,0 +1,14 @@
+# Render.com — New > Blueprint > liga este repo
+services:
+  - type: web
+    name: klivo-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_MOCK_DB
+        value: "true"
+      - key: API_KEY
+        generateValue: true
