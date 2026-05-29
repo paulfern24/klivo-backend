@@ -155,40 +155,65 @@ function pickActiveSponsor(broadcast) {
   return sponsors[safeIndex];
 }
 
-async function prepareLogoAssets(broadcast, workDir) {
+function teamInitials(name) {
+  return String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+async function persistUploadedLogo(uploadedFile, workDir, basename) {
+  if (!uploadedFile?.path) return null;
+  const ext = path.extname(uploadedFile.originalname || "") || ".png";
+  const dest = path.join(workDir, `${basename}${ext}`);
+  await fs.copyFile(uploadedFile.path, dest);
+  return dest;
+}
+
+async function prepareLogoAssets(broadcast, workDir, uploadedLogos = {}) {
   await fs.mkdir(workDir, { recursive: true });
   const images = [];
+  const teamLogoSize = "ih/21";
+  const sponsorLogoSize = "ih/20";
+  const klivoLogoSize = "ih/28";
 
-  const homePath = await tryDownloadLogo(
-    broadcast.home.logoUrl,
-    path.join(workDir, "home-logo.png")
-  );
-  if (homePath) images.push({ role: "home", path: homePath, w: 52, h: 52 });
+  const homePath =
+    (await persistUploadedLogo(uploadedLogos.home, workDir, "home-logo")) ??
+    (await tryDownloadLogo(broadcast.home.logoUrl, path.join(workDir, "home-logo.png")));
+  if (homePath) images.push({ role: "home", path: homePath, size: teamLogoSize });
 
-  const awayPath = await tryDownloadLogo(
-    broadcast.away.logoUrl,
-    path.join(workDir, "away-logo.png")
-  );
-  if (awayPath) images.push({ role: "away", path: awayPath, w: 52, h: 52 });
+  const awayPath =
+    (await persistUploadedLogo(uploadedLogos.away, workDir, "away-logo")) ??
+    (await tryDownloadLogo(broadcast.away.logoUrl, path.join(workDir, "away-logo.png")));
+  if (awayPath) images.push({ role: "away", path: awayPath, size: teamLogoSize });
 
   const sponsor = pickActiveSponsor(broadcast);
-  if (sponsor?.logoUrl) {
-    const sponsorPath = await tryDownloadLogo(
-      sponsor.logoUrl,
-      path.join(workDir, "sponsor-active.png")
-    );
-    if (sponsorPath) {
-      images.push({ role: "sponsor", path: sponsorPath, w: 48, h: 48 });
-    }
+  const sponsorPath =
+    (await persistUploadedLogo(uploadedLogos.sponsor, workDir, "sponsor-active")) ??
+    (sponsor?.logoUrl
+      ? await tryDownloadLogo(sponsor.logoUrl, path.join(workDir, "sponsor-active.png"))
+      : null);
+  if (sponsorPath) {
+    images.push({ role: "sponsor", path: sponsorPath, size: sponsorLogoSize });
   }
+
+  const klivoPath = await persistUploadedLogo(uploadedLogos.klivo, workDir, "klivo-icon");
+  if (klivoPath) images.push({ role: "klivo", path: klivoPath, size: klivoLogoSize });
 
   return { images, sponsor };
 }
 
 /** Opção A: equipas topo-esq. | Klivo topo-dir. | sponsor rodapé-esq. */
-export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
+export async function applyBroadcastOverlay(
+  inputPath,
+  outputPath,
+  broadcast,
+  uploadedLogos = {}
+) {
   const workDir = `${inputPath}.overlay-assets`;
-  const assets = await prepareLogoAssets(broadcast, workDir);
+  const assets = await prepareLogoAssets(broadcast, workDir, uploadedLogos);
 
   const font = getFontFile();
   const rotation = await probeVideoRotation(inputPath);
@@ -201,7 +226,7 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
     args.push("-i", image.path);
     const scaled = `logo${inputIndex}`;
     filterParts.push(
-      `[${inputIndex}:v]scale=${image.w}:${image.h}:force_original_aspect_ratio=decrease[${scaled}]`
+      `[${inputIndex}:v]scale=${image.size}:-2:force_original_aspect_ratio=decrease,format=rgba[${scaled}]`
     );
     image.scaled = scaled;
     inputIndex += 1;
@@ -236,14 +261,25 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
     stream = "tbar";
 
     const homeImage = assets.images.find((img) => img.role === "home");
+    const homeNameX = homeImage ? Number(pad) + 64 : Number(pad) + 48;
     if (homeImage) {
       chains.push(`[${stream}][${homeImage.scaled}]overlay=x=${Number(pad) + 8}:y=${Number(pad) + 10}[vhlogo]`);
       stream = "vhlogo";
+    } else {
+      const homeInit = escapeDrawtext(teamInitials(broadcast.home.name));
+      chains.push(
+        `[${stream}]drawbox=x=${Number(pad) + 8}:y=${Number(pad) + 10}:w=ih/21:h=ih/21:color=white@0.15:t=fill[hcirc]`
+      );
+      stream = "hcirc";
+      chains.push(
+        `[${stream}]drawtext=fontfile='${font}':text='${homeInit}':x=${Number(pad) + 14}:y=${Number(pad) + 20}:fontsize=ih/42:fontcolor=white[vhinit]`
+      );
+      stream = "vhinit";
     }
 
     const homeText = escapeDrawtext(broadcast.home.name);
     chains.push(
-      `[${stream}]drawtext=fontfile='${font}':text='${homeText}':x=${Number(pad) + 64}:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[tname]`
+      `[${stream}]drawtext=fontfile='${font}':text='${homeText}':x=${homeNameX}:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[tname]`
     );
     stream = "tname";
 
@@ -260,26 +296,50 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
 
     const awayImage = assets.images.find((img) => img.role === "away");
     if (awayImage) {
-      chains.push(`[${stream}][${awayImage.scaled}]overlay=x=iw*0.58:y=${Number(pad) + 8}[vaway]`);
+      chains.push(`[${stream}][${awayImage.scaled}]overlay=x=w*0.58:y=${Number(pad) + 8}[vaway]`);
       stream = "vaway";
+    } else {
+      const awayInit = escapeDrawtext(teamInitials(broadcast.away.name));
+      chains.push(
+        `[${stream}]drawbox=x=w*0.58:y=${Number(pad) + 8}:w=ih/21:h=ih/21:color=white@0.15:t=fill[acirc]`
+      );
+      stream = "acirc";
+      chains.push(
+        `[${stream}]drawtext=fontfile='${font}':text='${awayInit}':x=w*0.58+6:y=${Number(pad) + 18}:fontsize=ih/42:fontcolor=white[vainit]`
+      );
+      stream = "vainit";
     }
   }
 
   chains.push(
-    `[${stream}]drawbox=x=iw*0.80:y=${pad}:w=iw*0.18:h=ih*0.09:color=black@0.62:t=fill[kbar]`
+    `[${stream}]drawbox=x=w*0.80:y=${pad}:w=w*0.18:h=ih*0.09:color=black@0.62:t=fill[kbar]`
   );
   stream = "kbar";
-  chains.push(
-    `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
-  );
+
+  const klivoImage = assets.images.find((img) => img.role === "klivo");
+  if (klivoImage) {
+    chains.push(`[${stream}][${klivoImage.scaled}]overlay=x=w*0.805:y=${Number(pad) + 8}[klogo]`);
+    stream = "klogo";
+    chains.push(
+      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.805+ih/24:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white:letter_spacing=2[klivo]`
+    );
+  } else {
+    chains.push(
+      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white:letter_spacing=2[klivo]`
+    );
+  }
   stream = "klivo";
 
   const sponsorImage = assets.images.find((img) => img.role === "sponsor");
   if (sponsorImage || assets.sponsor) {
     chains.push(
-      `[${stream}]drawbox=x=${pad}:y=ih*0.84:w=iw*0.32:h=ih*0.11:color=black@0.50:t=fill[spbar]`
+      `[${stream}]drawbox=x=${pad}:y=ih*0.84:w=iw*0.32:h=ih*0.11:color=black@0.45:t=fill[spbar]`
     );
     stream = "spbar";
+    chains.push(
+      `[${stream}]drawbox=x=${Number(pad) + 5}:y=ih*0.84+5:w=ih/20+10:h=ih/20+10:color=white@0.92:t=fill[spwhite]`
+    );
+    stream = "spwhite";
 
     if (sponsorImage) {
       chains.push(
@@ -287,9 +347,9 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
       );
       stream = "splogo";
     } else if (assets.sponsor?.name) {
-      const sponsorText = escapeDrawtext(assets.sponsor.name.slice(0, 16));
+      const sponsorText = escapeDrawtext(assets.sponsor.name.slice(0, 3).toUpperCase());
       chains.push(
-        `[${stream}]drawtext=fontfile='${font}':text='${sponsorText}':x=${Number(pad) + 56}:y=h*0.84+28:fontsize=${teamFs}:fontcolor=white[spname]`
+        `[${stream}]drawtext=fontfile='${font}':text='${sponsorText}':x=${Number(pad) + 18}:y=h*0.84+22:fontsize=ih/52:fontcolor=0x0f172a[spname]`
       );
       stream = "spname";
     }

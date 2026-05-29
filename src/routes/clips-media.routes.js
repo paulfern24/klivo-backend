@@ -28,11 +28,25 @@ const upload = multer({
 
 export const clipsMediaRouter = Router();
 
-clipsMediaRouter.post("/apply-overlay", upload.single("video"), async (req, res) => {
-  const file = req.file;
-  const broadcast = parseBroadcastPayload(req.body?.broadcast);
+const overlayUpload = upload.fields([
+  { name: "video", maxCount: 1 },
+  { name: "logoHome", maxCount: 1 },
+  { name: "logoAway", maxCount: 1 },
+  { name: "logoSponsor", maxCount: 1 },
+  { name: "logoKlivo", maxCount: 1 }
+]);
 
-  if (!file) {
+clipsMediaRouter.post("/apply-overlay", overlayUpload, async (req, res) => {
+  const videoFile = req.files?.video?.[0];
+  const broadcast = parseBroadcastPayload(req.body?.broadcast);
+  const uploadedLogos = {
+    home: req.files?.logoHome?.[0],
+    away: req.files?.logoAway?.[0],
+    sponsor: req.files?.logoSponsor?.[0],
+    klivo: req.files?.logoKlivo?.[0]
+  };
+
+  if (!videoFile) {
     return res.status(400).json({ error: "Envia o ficheiro de vídeo." });
   }
   if (!broadcast) {
@@ -41,10 +55,16 @@ clipsMediaRouter.post("/apply-overlay", upload.single("video"), async (req, res)
 
   const outputFilename = `clip-overlay-${Date.now()}.mp4`;
   const outputPath = path.join(uploadsOutDir, outputFilename);
+  const logoTemps = [
+    uploadedLogos.home,
+    uploadedLogos.away,
+    uploadedLogos.sponsor,
+    uploadedLogos.klivo
+  ].filter(Boolean);
 
   try {
     await ensureOutputDir(uploadsOutDir);
-    await applyBroadcastOverlay(file.path, outputPath, broadcast);
+    await applyBroadcastOverlay(videoFile.path, outputPath, broadcast, uploadedLogos);
 
     return res.status(201).json({
       data: {
@@ -56,7 +76,8 @@ clipsMediaRouter.post("/apply-overlay", upload.single("video"), async (req, res)
   } catch (error) {
     return res.status(500).json({ error: error.message });
   } finally {
-    await fs.unlink(file.path).catch(() => undefined);
+    await fs.unlink(videoFile.path).catch(() => undefined);
+    await Promise.all(logoTemps.map((f) => fs.unlink(f.path).catch(() => undefined)));
   }
 });
 
