@@ -2,6 +2,20 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+function extractFfmpegError(stderr) {
+  const lines = stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const errorLines = lines.filter(
+    (l) =>
+      /error|invalid|failed|no such|not found|cannot|unable|impossible|parse/i.test(l) &&
+      !/libavutil|configuration:|ffmpeg version/i.test(l)
+  );
+  if (errorLines.length) {
+    return errorLines.slice(-4).join(" · ");
+  }
+  const tail = lines.slice(-6).join(" · ");
+  return tail || `FFmpeg falhou (sem detalhe no log)`;
+}
+
 export function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -25,9 +39,48 @@ export function runFfmpeg(args) {
 
     child.on("close", (code) => {
       if (code === 0) resolve(undefined);
-      else reject(new Error(stderr.slice(-2000) || `FFmpeg falhou com código ${code}`));
+      else reject(new Error(extractFfmpegError(stderr)));
     });
   });
+}
+
+/** Rotação do telemóvel (display matrix). Devolve graus ou 0. */
+export function probeVideoRotation(inputPath) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream_side_data=rotation",
+        "-of",
+        "csv=p=0",
+        inputPath
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let stdout = "";
+    child.stdout.on("data", (c) => {
+      stdout += c.toString();
+    });
+    child.on("close", () => {
+      const raw = stdout.trim().split(/\r?\n/)[0];
+      const deg = Number(raw);
+      resolve(Number.isFinite(deg) ? deg : 0);
+    });
+    child.on("error", () => resolve(0));
+  });
+}
+
+function rotationToTransposeFilter(degrees) {
+  const d = ((Math.round(degrees) % 360) + 360) % 360;
+  if (d === 90) return "transpose=1";
+  if (d === 180) return "transpose=2,transpose=2";
+  if (d === 270) return "transpose=2";
+  return null;
 }
 
 function getFontFile() {
@@ -138,7 +191,9 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
   const assets = await prepareLogoAssets(broadcast, workDir);
 
   const font = getFontFile();
-  const args = ["-y", "-i", inputPath];
+  const rotation = await probeVideoRotation(inputPath);
+  const transpose = rotationToTransposeFilter(rotation);
+  const args = ["-y", "-noautorotate", "-i", inputPath];
   const filterParts = [];
   let inputIndex = 1;
 
@@ -154,6 +209,11 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
 
   let stream = "0:v";
   const chains = [];
+
+  if (transpose) {
+    filterParts.push(`[0:v]${transpose}[vrot]`);
+    stream = "vrot";
+  }
 
   const teamFs = "h/90";
   const vsFs = "h/98";
@@ -222,7 +282,9 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
     stream = "spbar";
 
     if (sponsorImage) {
-      chains.push(`[${stream}][${sponsorImage.scaled}]overlay=x=${Number(pad) + 10}:y=H*0.84+10[splogo]`);
+      chains.push(
+        `[${stream}][${sponsorImage.scaled}]overlay=x=${Number(pad) + 10}:y=main_h*0.84+10[splogo]`
+      );
       stream = "splogo";
     } else if (assets.sponsor?.name) {
       const sponsorText = escapeDrawtext(assets.sponsor.name.slice(0, 16));
