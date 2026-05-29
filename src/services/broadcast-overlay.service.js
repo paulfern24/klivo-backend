@@ -248,13 +248,13 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
     stream = "tname";
 
     chains.push(
-      `[${stream}]drawtext=fontfile='${font}':text='VS':x=iw*0.30:y=${Number(pad) + 24}:fontsize=${vsFs}:fontcolor=0xFBBF24[tvs]`
+      `[${stream}]drawtext=fontfile='${font}':text='VS':x=w*0.30:y=${Number(pad) + 24}:fontsize=${vsFs}:fontcolor=0xFBBF24[tvs]`
     );
     stream = "tvs";
 
     const awayText = escapeDrawtext(broadcast.away.name);
     chains.push(
-      `[${stream}]drawtext=fontfile='${font}':text='${awayText}':x=iw*0.38:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[taname]`
+      `[${stream}]drawtext=fontfile='${font}':text='${awayText}':x=w*0.38:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[taname]`
     );
     stream = "taname";
 
@@ -270,7 +270,7 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
   );
   stream = "kbar";
   chains.push(
-    `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=iw*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
+    `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
   );
   stream = "klivo";
 
