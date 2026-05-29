@@ -321,11 +321,11 @@ export async function applyBroadcastOverlay(
     chains.push(`[${stream}][${klivoImage.scaled}]overlay=x=w*0.805:y=${Number(pad) + 8}[klogo]`);
     stream = "klogo";
     chains.push(
-      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.805+ih/24:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white:letter_spacing=2[klivo]`
+      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.805+ih/24:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
     );
   } else {
     chains.push(
-      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white:letter_spacing=2[klivo]`
+      `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=w*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
     );
   }
   stream = "klivo";
