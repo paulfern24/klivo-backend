@@ -52,7 +52,20 @@ export function parseBroadcastPayload(raw) {
   if (!raw) return null;
   try {
     const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!data?.home?.name || !data?.away?.name) return null;
+    if (!data?.home?.name) return null;
+    const awayName = typeof data.away?.name === "string" ? data.away.name.trim() : "";
+    if (!awayName) {
+      if (data.brandingMode === "klivo" || data.home?.clubId === "__klivo_branding__") {
+        data.away = {
+          ...data.away,
+          name: "Klivo",
+          clubId: data.away?.clubId ?? "__klivo_branding__",
+          logoUrl: data.away?.logoUrl ?? null
+        };
+      } else {
+        return null;
+      }
+    }
     return data;
   } catch {
     return null;
@@ -119,7 +132,7 @@ async function prepareLogoAssets(broadcast, workDir) {
   return { images, sponsor };
 }
 
-/** Overlay estilo Capture: equipas em cima à esquerda, 1 sponsor em cima à direita. */
+/** Opção A: equipas topo-esq. | Klivo topo-dir. | sponsor rodapé-esq. */
 export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
   const workDir = `${inputPath}.overlay-assets`;
   const assets = await prepareLogoAssets(broadcast, workDir);
@@ -144,56 +157,77 @@ export async function applyBroadcastOverlay(inputPath, outputPath, broadcast) {
 
   const teamFs = "h/90";
   const vsFs = "h/98";
+  const klivoFs = "h/100";
   const pad = "16";
+  const showTeams =
+    broadcast.brandingMode !== "klivo" &&
+    broadcast.home?.clubId !== "__klivo_branding__" &&
+    Boolean(
+      typeof broadcast.home?.name === "string" &&
+        broadcast.home.name.trim() &&
+        typeof broadcast.away?.name === "string" &&
+        broadcast.away.name.trim()
+    );
 
-  chains.push(
-    `[${stream}]drawbox=x=${pad}:y=${pad}:w=iw*0.72:h=ih*0.10:color=black@0.62:t=fill[tbar]`
-  );
-  stream = "tbar";
+  if (showTeams) {
+    chains.push(
+      `[${stream}]drawbox=x=${pad}:y=${pad}:w=iw*0.72:h=ih*0.10:color=black@0.62:t=fill[tbar]`
+    );
+    stream = "tbar";
 
-  const homeImage = assets.images.find((img) => img.role === "home");
-  if (homeImage) {
-    chains.push(`[${stream}][${homeImage.scaled}]overlay=x=${Number(pad) + 8}:y=${Number(pad) + 10}[vhlogo]`);
-    stream = "vhlogo";
+    const homeImage = assets.images.find((img) => img.role === "home");
+    if (homeImage) {
+      chains.push(`[${stream}][${homeImage.scaled}]overlay=x=${Number(pad) + 8}:y=${Number(pad) + 10}[vhlogo]`);
+      stream = "vhlogo";
+    }
+
+    const homeText = escapeDrawtext(broadcast.home.name);
+    chains.push(
+      `[${stream}]drawtext=fontfile='${font}':text='${homeText}':x=${Number(pad) + 64}:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[tname]`
+    );
+    stream = "tname";
+
+    chains.push(
+      `[${stream}]drawtext=fontfile='${font}':text='VS':x=iw*0.30:y=${Number(pad) + 24}:fontsize=${vsFs}:fontcolor=0xFBBF24[tvs]`
+    );
+    stream = "tvs";
+
+    const awayText = escapeDrawtext(broadcast.away.name);
+    chains.push(
+      `[${stream}]drawtext=fontfile='${font}':text='${awayText}':x=iw*0.38:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[taname]`
+    );
+    stream = "taname";
+
+    const awayImage = assets.images.find((img) => img.role === "away");
+    if (awayImage) {
+      chains.push(`[${stream}][${awayImage.scaled}]overlay=x=iw*0.58:y=${Number(pad) + 8}[vaway]`);
+      stream = "vaway";
+    }
   }
 
-  const homeText = escapeDrawtext(broadcast.home.name);
   chains.push(
-    `[${stream}]drawtext=fontfile='${font}':text='${homeText}':x=${Number(pad) + 64}:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[tname]`
+    `[${stream}]drawbox=x=iw*0.80:y=${pad}:w=iw*0.18:h=ih*0.09:color=black@0.62:t=fill[kbar]`
   );
-  stream = "tname";
-
+  stream = "kbar";
   chains.push(
-    `[${stream}]drawtext=fontfile='${font}':text='VS':x=iw*0.30:y=${Number(pad) + 24}:fontsize=${vsFs}:fontcolor=0xFBBF24[tvs]`
+    `[${stream}]drawtext=fontfile='${font}':text='KLIVO':x=iw*0.84:y=${Number(pad) + 20}:fontsize=${klivoFs}:fontcolor=white[klivo]`
   );
-  stream = "tvs";
-
-  const awayText = escapeDrawtext(broadcast.away.name);
-  chains.push(
-    `[${stream}]drawtext=fontfile='${font}':text='${awayText}':x=iw*0.38:y=${Number(pad) + 22}:fontsize=${teamFs}:fontcolor=white:borderw=1:bordercolor=black@0.35[taname]`
-  );
-  stream = "taname";
-
-  const awayImage = assets.images.find((img) => img.role === "away");
-  if (awayImage) {
-    chains.push(`[${stream}][${awayImage.scaled}]overlay=x=iw*0.58:y=${Number(pad) + 8}[vaway]`);
-    stream = "vaway";
-  }
+  stream = "klivo";
 
   const sponsorImage = assets.images.find((img) => img.role === "sponsor");
   if (sponsorImage || assets.sponsor) {
     chains.push(
-      `[${stream}]drawbox=x=iw*0.84:y=${pad}:w=iw*0.14:h=ih*0.10:color=black@0.45:t=fill[spbar]`
+      `[${stream}]drawbox=x=${pad}:y=ih*0.84:w=iw*0.32:h=ih*0.11:color=black@0.50:t=fill[spbar]`
     );
     stream = "spbar";
 
     if (sponsorImage) {
-      chains.push(`[${stream}][${sponsorImage.scaled}]overlay=x=iw*0.855:y=${Number(pad) + 12}[splogo]`);
+      chains.push(`[${stream}][${sponsorImage.scaled}]overlay=x=${Number(pad) + 10}:y=H*0.84+10[splogo]`);
       stream = "splogo";
     } else if (assets.sponsor?.name) {
-      const sponsorText = escapeDrawtext(assets.sponsor.name.slice(0, 12));
+      const sponsorText = escapeDrawtext(assets.sponsor.name.slice(0, 16));
       chains.push(
-        `[${stream}]drawtext=fontfile='${font}':text='${sponsorText}':x=iw*0.86:y=${Number(pad) + 28}:fontsize=${teamFs}:fontcolor=white[spname]`
+        `[${stream}]drawtext=fontfile='${font}':text='${sponsorText}':x=${Number(pad) + 56}:y=h*0.84+28:fontsize=${teamFs}:fontcolor=white[spname]`
       );
       stream = "spname";
     }
